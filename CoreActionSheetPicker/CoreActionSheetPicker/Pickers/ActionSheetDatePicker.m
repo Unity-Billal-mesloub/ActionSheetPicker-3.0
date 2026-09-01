@@ -177,12 +177,29 @@
     datePicker.calendar = self.calendar;
     datePicker.timeZone = self.timeZone;
     datePicker.locale = self.locale;
+    BOOL isWheelsStyle = YES; // pre-13.4 only has the wheels look
     if (@available(iOS 13.4, *)) {
         datePicker.preferredDatePickerStyle = self.datePickerStyle;
-    } else {
-        UIColor *textColor = [self.pickerTextAttributes valueForKey:NSForegroundColorAttributeName];
-        if (textColor) {
-            [datePicker setValue:textColor forKey:@"textColor"]; // use ObjC runtime to set value for property that is not exposed publicly
+        isWheelsStyle = (self.datePickerStyle == UIDatePickerStyleWheels);
+    }
+    UIColor *textColor = [self.pickerTextAttributes valueForKey:NSForegroundColorAttributeName];
+    if (@available(iOS 13.0, *)) {
+        // The base class seeds pickerTextAttributes with labelColor; that is
+        // already the picker's default, so only a color the caller actually
+        // chose should be forced onto the wheels.
+        if ([textColor isEqual:[UIColor labelColor]]) {
+            textColor = nil;
+        }
+    }
+    if (textColor && isWheelsStyle) {
+        // The textColor KVC key is private but long-standing on the wheels
+        // view; other styles' views throw on it (e.g.
+        // _UIDatePickerMacCompactView, #484), hence the wheels-only guard and
+        // the @try in case a future iOS removes the key (#324, #582).
+        @try {
+            [datePicker setValue:textColor forKey:@"textColor"];
+        } @catch (NSException *exception) {
+            NSLog(@"ActionSheetDatePicker: setting textColor is not supported on this iOS version: %@", exception.reason);
         }
     }
     
@@ -200,6 +217,20 @@
     }
 
     [datePicker addTarget:self action:@selector(eventForDatePicker:) forControlEvents:UIControlEventValueChanged];
+
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 140000 // Xcode 12 and iOS 14, or greater
+    if (@available(iOS 14.0, *)) {
+        if (self.datePickerStyle == UIDatePickerStyleCompact) {
+            // The compact style renders a small date capsule; stretched to the
+            // full sheet width it pins the capsule to the trailing edge under
+            // the Done button (#534). Size it to fit and center it vertically
+            // in the allocated region; the base class centers it horizontally.
+            CGSize fittingSize = [datePicker sizeThatFits:CGSizeZero];
+            CGFloat y = datePickerFrame.origin.y + (datePickerFrame.size.height - fittingSize.height) / 2;
+            datePicker.frame = CGRectMake(0, y, fittingSize.width, fittingSize.height);
+        }
+    }
+#endif
 
     //need to keep a reference to the picker so we can clear the DataSource / Delegate when dismissing (not used in this picker, but just in case somebody uses this as a template for another picker)
     self.pickerView = datePicker;

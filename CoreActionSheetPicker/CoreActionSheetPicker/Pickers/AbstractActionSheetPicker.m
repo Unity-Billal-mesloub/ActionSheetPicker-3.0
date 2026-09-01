@@ -146,7 +146,9 @@ CG_INLINE BOOL isIPhone4() {
         [self setCancelBarButtonItem:sysCancelButton];
         [self setDoneBarButtonItem:sysDoneButton];
 
-        self.tapDismissAction = TapActionDismiss;
+        // Tapping outside is a cancellation, matching UIKit sheet conventions
+        // — otherwise the host app has no way to learn the picker went away (#531).
+        self.tapDismissAction = TapActionCancel;
         //allows us to use this without needing to store a reference in calling class
         self.selfReference = self;
 
@@ -230,6 +232,11 @@ CG_INLINE BOOL isIPhone4() {
 #pragma mark - Actions
 
 - (void)showActionSheetPicker {
+    // Each presentation gets a fresh retry budget for addTapDismissAction,
+    // otherwise re-showing the same picker accumulates the count until it
+    // permanently hits the cap.
+    self.windowTapActionRetryCount = 0;
+
     CGFloat height = 216.0;
     if (@available(iOS 14.0, *)) {
         if ([self isKindOfClass:[ActionSheetDatePicker class]]) {
@@ -239,6 +246,10 @@ CG_INLINE BOOL isIPhone4() {
         }
     }
     
+    if (@available(iOS 26.0, *)) {
+        height += 16.0; // extra top padding for the iOS 26 toolbar inset, see #590
+    }
+
     /// Bottom padding for iPhone X style phones (adds some additional height for the home bar).
     if (@available(iOS 11.0, *)) {
         UIWindow *window = UIApplication.sharedApplication.keyWindow;
@@ -276,8 +287,14 @@ CG_INLINE BOOL isIPhone4() {
     
     // Centers the pickerView frame in cases where the pickerView is not as wide as masterView
     CGFloat xOffset = (CGRectGetWidth(masterView.frame) - CGRectGetWidth(self.pickerView.frame)) / 2;
+    CGFloat yOffset = CGRectGetMinY(self.pickerView.frame);
+    if (@available(iOS 26.0, *)) {
+        if (!self.toolbar.hidden) {
+            yOffset += 8.0; // keep clear of the inset toolbar, see #590
+        }
+    }
     self.pickerView.frame = CGRectMake(xOffset,
-                                       CGRectGetMinY(self.pickerView.frame),
+                                       yOffset,
                                        CGRectGetWidth(self.pickerView.frame),
                                        CGRectGetHeight(self.pickerView.frame));
     
@@ -288,8 +305,10 @@ CG_INLINE BOOL isIPhone4() {
     } else {
         [self presentPickerForView:masterView];
     }
-
-	[self addTapDismissAction];
+    
+    if (![MyPopoverController canShowPopover]) {
+        [self addTapDismissAction];
+    }
 }
 
 - (void)addTapDismissAction {
@@ -299,6 +318,8 @@ CG_INLINE BOOL isIPhone4() {
 	}
 	if (self.windowTapActionRetryCount > 10) {
 		NSAssert(NO, @"Failed to find Picker view's window. This may cause a memory leak.");
+		// Bail out in release builds too, otherwise the dispatch_async below retries forever.
+		return;
 	}
 	if (!self.pickerView.window) {
 		self.windowTapActionRetryCount += 1;
@@ -311,7 +332,7 @@ CG_INLINE BOOL isIPhone4() {
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "UnavailableInDeploymentTarget"
     {
-		SEL sel;
+		SEL sel = NULL;
         switch (self.tapDismissAction) {
             case TapActionDismiss:
                 // add tap dismiss action
@@ -498,7 +519,11 @@ CG_INLINE BOOL isIPhone4() {
 
 
 - (UIToolbar *)createPickerToolbarWithTitle:(NSString *)title {
-    CGRect frame = CGRectMake(0, 0, self.viewSize.width, 44);
+    CGFloat toolbarTop = 0;
+    if (@available(iOS 26.0, *)) {
+        toolbarTop = 16; // inset from the sheet top, see #590
+    }
+    CGRect frame = CGRectMake(0, toolbarTop, self.viewSize.width, 44);
     UIToolbar *pickerToolbar = [[UIToolbar alloc] initWithFrame:frame];
     pickerToolbar.barStyle = UIBarStyleDefault;
 
@@ -530,6 +555,14 @@ CG_INLINE BOOL isIPhone4() {
         UIBarButtonItem *labelButton;
 
         labelButton = [self createToolbarLabelWithTitle:title titleTextAttributes:self.titleTextAttributes andAttributedTitle:self.attributedTitle];
+
+        if (@available(iOS 26.0, *)) {
+            // Drop the Liquid Glass background behind the title label (#590).
+            // Set via KVC so this still compiles with pre-26 SDKs.
+            if ([labelButton respondsToSelector:NSSelectorFromString(@"setHidesSharedBackground:")]) {
+                [labelButton setValue:@(YES) forKey:@"hidesSharedBackground"];
+            }
+        }
 
         [barItems addObject:labelButton];
         [barItems addObject:flexSpace];
@@ -759,6 +792,7 @@ CG_INLINE BOOL isIPhone4() {
     NSParameterAssert(viewController != NULL);
 
     viewController.modalPresentationStyle = UIModalPresentationPopover;
+    viewController.presentationController.delegate = self;
 
     if (self.barButtonItem) {
         if (_containerView != nil) {
@@ -809,6 +843,21 @@ CG_INLINE BOOL isIPhone4() {
             [[self topViewController] presentViewController:viewController animated:YES completion:nil];
         });
     }
+}
+
+#pragma mark UIAdaptivePresentationControllerDelegate
+- (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController {
+    switch (self.tapDismissAction) {
+        case TapActionDismiss:
+            [self dismissPicker];
+            break;
+        case TapActionSuccess:
+            [self actionPickerDone:nil];
+            break;
+        case TapActionCancel:
+            [self actionPickerCancel:nil];
+            break;
+    };
 }
 
 #pragma mark UIGestureRecognizerDelegate
