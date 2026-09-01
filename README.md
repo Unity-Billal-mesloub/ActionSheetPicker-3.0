@@ -179,7 +179,7 @@ brew install carthage
 To integrate ActionSheetPicker-3.0 into your Xcode project using Carthage, specify it in your `Cartfile`:
 
 ```ogdl
-github "skywinder/ActionSheetPicker-3.0"
+github "Unity-Billal-mesloub/ActionSheetPicker-3.0"
 ```
 
 ### Swift Package Manager
