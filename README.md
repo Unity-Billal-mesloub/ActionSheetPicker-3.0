@@ -193,7 +193,7 @@ If you are using Xcode 11 or later:
  4. Specify the git URL for ActionSheetPicker-3.0.
 
 ```swift
-https://github.com/skywinder/ActionSheetPicker-3.0
+https://github.com/Unity-Billal-mesloub/ActionSheetPicker-3.0
 ```
 
 ### Manually
@@ -207,7 +207,7 @@ The "old school" way is manually added to your project all from [Pickers](CoreAc
 - Add ActionSheetPicker-3.0 as a [submodule](http://git-scm.com/docs/git-submodule) by opening the Terminal, `cd`-ing into your top-level project directory, and entering the following command:
 
 ```bash
-git submodule add https://github.com/skywinder/ActionSheetPicker-3.0.git
+git submodule add https://github.com/Unity-Billal-mesloub/ActionSheetPicker-3.0.git
 ```
 
 - Open the `ActionSheetPicker-3.0` folder, and drag `CoreActionSheetPicker.xcodeproj` into the file navigator of your app project.
